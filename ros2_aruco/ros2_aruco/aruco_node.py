@@ -35,7 +35,7 @@ import numpy as np
 import cv2
 import tf_transformations
 from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import PoseArray, Pose
 from ros2_aruco_interfaces.msg import ArucoMarkers
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
@@ -133,7 +133,7 @@ class ArucoNode(rclpy.node.Node):
         )
 
         self.create_subscription(
-            Image, image_topic, self.image_callback, qos_profile_sensor_data
+            CompressedImage, image_topic, self.image_callback, qos_profile_sensor_data
         )
 
         # Set up publishers
@@ -150,6 +150,7 @@ class ArucoNode(rclpy.node.Node):
         self.bridge = CvBridge()
 
     def info_callback(self, info_msg):
+        self.get_logger().info("infos recue", once=True)
         self.info_msg = info_msg
         self.intrinsic_mat = np.reshape(np.array(self.info_msg.k), (3, 3))
         self.distortion = np.array(self.info_msg.d)
@@ -157,11 +158,12 @@ class ArucoNode(rclpy.node.Node):
         self.destroy_subscription(self.info_sub)
 
     def image_callback(self, img_msg):
+        self.get_logger().info("image recue", once=True)
         if self.info_msg is None:
             self.get_logger().warn("No camera info has been received!")
             return
 
-        cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="mono8")
+        cv_image = self.bridge.compressed_imgmsg_to_cv2(img_msg, desired_encoding="mono8")
         markers = ArucoMarkers()
         pose_array = PoseArray()
         if self.camera_frame == "":
@@ -178,6 +180,7 @@ class ArucoNode(rclpy.node.Node):
             cv_image, self.aruco_dictionary, parameters=self.aruco_parameters
         )
         if marker_ids is not None:
+            print("MARQUEUR DETECTE")
             if cv2.__version__ > "4.0.0":
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
                     corners, self.marker_size, self.intrinsic_mat, self.distortion
