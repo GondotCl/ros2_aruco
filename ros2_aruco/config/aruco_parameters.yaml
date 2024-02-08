@@ -1,6 +1,6 @@
 /aruco_node:
   ros__parameters:
-    marker_size: 0.0202
+    marker_size: 0.202  # 14 / 9
     aruco_dictionary_id: DICT_5X5_50
     image_topic: /camera_data/compressed
     camera_info_topic: /camera_data/camera_info
