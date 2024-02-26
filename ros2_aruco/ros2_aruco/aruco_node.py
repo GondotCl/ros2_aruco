@@ -35,7 +35,7 @@ import numpy as np
 import cv2
 import tf_transformations
 from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, Image
 from geometry_msgs.msg import PoseArray, Pose
 from ros2_aruco_interfaces.msg import ArucoMarkers
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
@@ -91,6 +91,15 @@ class ArucoNode(rclpy.node.Node):
             ),
         )
 
+        self.declare_parameter(
+            name="display_image",
+            value=False,
+            descriptor=ParameterDescriptor(
+                type=ParameterType.PARAMETER_BOOL,
+                description="Camera optical frame to use.",
+            ),
+        )
+
         self.marker_size = (
             self.get_parameter("marker_size").get_parameter_value().double_value
         )
@@ -115,6 +124,10 @@ class ArucoNode(rclpy.node.Node):
             self.get_parameter("camera_frame").get_parameter_value().string_value
         )
 
+        self.display = (
+            self.get_parameter("display_image").get_parameter_value().bool_value
+        )
+        self.get_logger().info(f"Display image: {self.display}")
         # Make sure we have a valid dictionary id:
         try:
             dictionary_id = cv2.aruco.__getattribute__(dictionary_id_name)
@@ -134,6 +147,7 @@ class ArucoNode(rclpy.node.Node):
 
         self.create_subscription(
             CompressedImage, image_topic, self.image_callback, qos_profile_sensor_data
+            # Image, image_topic, self.image_callback, qos_profile_sensor_data
         )
 
         # Set up publishers
@@ -164,6 +178,7 @@ class ArucoNode(rclpy.node.Node):
             return
 
         cv_image = self.bridge.compressed_imgmsg_to_cv2(img_msg, desired_encoding="mono8")
+        # cv_image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="bgr8")
         markers = ArucoMarkers()
         pose_array = PoseArray()
         if self.camera_frame == "":
@@ -179,6 +194,7 @@ class ArucoNode(rclpy.node.Node):
         corners, marker_ids, rejected = cv2.aruco.detectMarkers(
             cv_image, self.aruco_dictionary, parameters=self.aruco_parameters
         )
+        img = cv_image
         if marker_ids is not None:
             print("MARQUEUR DETECTE")
             if cv2.__version__ > "4.0.0":
@@ -208,8 +224,32 @@ class ArucoNode(rclpy.node.Node):
                 markers.poses.append(pose)
                 markers.marker_ids.append(marker_id[0])
 
-            self.poses_pub.publish(pose_array)
-            self.markers_pub.publish(markers)
+                self.get_logger().info("MARKER ID: " + str(marker_id[0]))
+
+                if self.display:
+                    (topLeft, topRight, bottomRight, bottomLeft) = corners[i].reshape((4, 2)).astype(np.int32)
+                    self.get_logger().info("topLeft: " + str(topLeft))
+                    # draw the bounding box of the ArUCo detection
+                    cv2.line(img, topLeft, topRight, (0, 255, 0), 2)
+                    cv2.line(img, topRight, bottomRight, (0, 255, 0), 2)
+                    cv2.line(img, bottomRight, bottomLeft, (0, 255, 0), 2)
+                    cv2.line(img, bottomLeft, topLeft, (0, 255, 0), 2)
+                    # compute and draw the center (x, y)-coordinates of the ArUco
+                    # marker
+                    cX = int((topLeft[0] + bottomRight[0]) / 2.0)
+                    cY = int((topLeft[1] + bottomRight[1]) / 2.0)
+                    cv2.circle(img, (cX, cY), 4, (0, 0, 255), -1)
+                    # draw the ArUco marker ID on the img
+                    cv2.putText(img, str(marker_id[0]),
+                                (topLeft[0], topLeft[1] - 15), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5, (0, 255, 0), 2)
+                    # img = cv2.drawMarker(cv_image, (corners[i][0][0][0], corners[i][0][0][1]), (0, 0, 255), markerType=cv2.MARKER_CROSS, thickness=2)
+
+        self.poses_pub.publish(pose_array)
+        self.markers_pub.publish(markers)
+        if self.display:
+            cv2.imshow("Image", img)
+            cv2.waitKey(1)
 
 
 def main():
