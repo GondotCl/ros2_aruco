@@ -14,7 +14,8 @@ def generate_launch_description():
     aruco_node = Node(
         package='ros2_aruco',
         executable='aruco_node',
-        parameters=[aruco_params]
+        parameters=[aruco_params],
+        arguments=['--ros-args', '--log-level', 'aruco_node:=warn']
     )
 
     return LaunchDescription([

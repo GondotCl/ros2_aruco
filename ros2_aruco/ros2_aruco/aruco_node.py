@@ -161,7 +161,12 @@ class ArucoNode(rclpy.node.Node):
 
         self.aruco_dictionary = cv2.aruco.Dictionary_get(dictionary_id)
         self.aruco_parameters = cv2.aruco.DetectorParameters_create()
+        self.marker_followed = None
         self.bridge = CvBridge()
+
+        # ecrire image dans une vidéo
+        # out = cv2.VideoWriter('outpy.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 10, (frame_width,frame_height))
+        self.video_writer = None
 
     def info_callback(self, info_msg):
         self.get_logger().info("infos recue", once=True)
@@ -170,6 +175,11 @@ class ArucoNode(rclpy.node.Node):
         self.distortion = np.array(self.info_msg.d)
         # Assume that camera parameters will remain the same...
         self.destroy_subscription(self.info_sub)
+        self.frame_width = info_msg.width
+        self.frame_height = info_msg.height
+        self.video_writer = cv2.VideoWriter('video.avi',
+                                            cv2.VideoWriter_fourcc(*'XVID'),
+                                            10, (1280, 720))
 
     def image_callback(self, img_msg):
         self.get_logger().info("image recue", once=True)
@@ -194,7 +204,7 @@ class ArucoNode(rclpy.node.Node):
         corners, marker_ids, rejected = cv2.aruco.detectMarkers(
             cv_image, self.aruco_dictionary, parameters=self.aruco_parameters
         )
-        img = cv_image
+        img = cv2.cvtColor(cv_image, cv2.COLOR_GRAY2BGR)
         if marker_ids is not None:
             print("MARQUEUR DETECTE")
             if cv2.__version__ > "4.0.0":
@@ -207,8 +217,11 @@ class ArucoNode(rclpy.node.Node):
                 )
             for i, marker_id in enumerate(marker_ids):
                 pose = Pose()
-                pose.position.x = tvecs[i][0][0]
-                pose.position.y = tvecs[i][0][1]
+                (topLeft, topRight, bottomRight, bottomLeft) = corners[i].reshape((4, 2)).astype(np.int32)
+                cX = int((topLeft[0] + bottomRight[0]) / 2.0)
+                cY = int((topLeft[1] + bottomRight[1]) / 2.0)
+                pose.position.x = float(cX - cv_image.shape[0] / 2) # tvecs[i][0][0]
+                pose.position.y = tvecs[i][0][1] # float(cY - cv_image.shape[1] / 2)
                 pose.position.z = tvecs[i][0][2]
 
                 rot_matrix = np.eye(4)
@@ -226,29 +239,41 @@ class ArucoNode(rclpy.node.Node):
 
                 self.get_logger().info("MARKER ID: " + str(marker_id[0]))
 
+                if self.marker_followed is None:
+                    self.marker_followed = marker_id[0]
+
                 if self.display:
-                    (topLeft, topRight, bottomRight, bottomLeft) = corners[i].reshape((4, 2)).astype(np.int32)
                     self.get_logger().info("topLeft: " + str(topLeft))
                     # draw the bounding box of the ArUCo detection
                     cv2.line(img, topLeft, topRight, (0, 255, 0), 2)
                     cv2.line(img, topRight, bottomRight, (0, 255, 0), 2)
                     cv2.line(img, bottomRight, bottomLeft, (0, 255, 0), 2)
                     cv2.line(img, bottomLeft, topLeft, (0, 255, 0), 2)
-                    # compute and draw the center (x, y)-coordinates of the ArUco
-                    # marker
-                    cX = int((topLeft[0] + bottomRight[0]) / 2.0)
-                    cY = int((topLeft[1] + bottomRight[1]) / 2.0)
-                    cv2.circle(img, (cX, cY), 4, (0, 0, 255), -1)
-                    # draw the ArUco marker ID on the img
-                    cv2.putText(img, str(marker_id[0]),
-                                (topLeft[0], topLeft[1] - 15), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.5, (0, 255, 0), 2)
-                    # img = cv2.drawMarker(cv_image, (corners[i][0][0][0], corners[i][0][0][1]), (0, 0, 255), markerType=cv2.MARKER_CROSS, thickness=2)
+                    if self.marker_followed == marker_id[0]:
+                        # compute and draw the center (x, y)-coordinates of the ArUco
+                        # marker
+                        cv2.circle(img, (cX, cY), 4, (0, 0, 255), -1)
+                        # draw the ArUco marker ID on the img
+                        cv2.putText(img, str(marker_id[0]),
+                                    (topLeft[0], topLeft[1] - 15), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.5, (0, 0, 255), 2)
+                    else:
+                        # compute and draw the center (x, y)-coordinates of the ArUco
+                        # marker
+                        cX = int((topLeft[0] + bottomRight[0]) / 2.0)
+                        cY = int((topLeft[1] + bottomRight[1]) / 2.0)
+                        cv2.circle(img, (cX, cY), 4, (0, 255, 0), -1)
+                        # draw the ArUco marker ID on the img
+                        cv2.putText(img, str(marker_id[0]),
+                                    (topLeft[0], topLeft[1] - 15), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.5, (0, 255, 0), 2)
+            # img = cv2.drawMarker(cv_image, (corners[i][0][0][0], corners[i][0][0][1]), (0, 0, 255), markerType=cv2.MARKER_CROSS, thickness=2)
 
         self.poses_pub.publish(pose_array)
         self.markers_pub.publish(markers)
         if self.display:
             cv2.imshow("Image", img)
+            self.video_writer.write(img)
             cv2.waitKey(1)
 
 
